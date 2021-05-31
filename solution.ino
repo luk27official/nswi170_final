@@ -55,156 +55,203 @@ enum class ModStates { //an informative enum (for debugging)
 
 ModStates currentMod = ModStates::CONFIGURATION_MODE;
 
-//BUTTONS
-constexpr size_t c_numButtons = 3;
-
-constexpr int c_buttonPins[] = { button1_pin, button2_pin, button3_pin };
-
-bool g_btnHeld[] = {false, false, false}; //is the button being held?
-
-//DISPLAY
-constexpr size_t c_numDigits = 4;
-
-char g_displayedChars[] = { '1', 'd', '0', '4' }; //which chars are being displayed, starting at 1d04
-
-size_t g_displayedDigit = 0; //which digit is being displayed? for multiplexing
-
-//DICE
-
-constexpr size_t c_maxThrows = 10;
-
-constexpr size_t c_dice[] = { 4, 6, 8, 10, 12, 20, 100 }; //d4, d6, d8, d10, d12, d20, and d100
-
-constexpr size_t c_diceCount = sizeof(c_dice)/sizeof(c_dice[0]);
-
-size_t g_diceIdx = 0;
-
-size_t g_diceThrows = 1;
-
-/* FUNCTIONS */
-
-/** 
- * Show chararcter on given position. If character is not letter or a digit, empty glyph is displayed instead.
- * @param ch character to be displayed
- * @param pos position (0 = leftmost)
- */
-void displayChar(char ch, byte pos)
-{
-  byte glyph = c_emptyGlyph;
-  if (isAlpha(ch)) {
-    glyph = c_letterGlyphs[ ch - (isUpperCase(ch) ? 'A' : 'a') ];
-  } else if (isdigit(ch)) {
-    glyph = c_numberGlyphs[ ch - '0' ];
-  }
-  
-  digitalWrite(latch_pin, LOW);
-  shiftOut(data_pin, clock_pin, MSBFIRST, glyph);
-  shiftOut(data_pin, clock_pin, MSBFIRST, 1 << pos);
-  digitalWrite(latch_pin, HIGH);
-}
-
-void writeToDisplay() { //multiplexing, shows the "g_displayedChars" array to the display
-  displayChar(g_displayedChars[g_displayedDigit], g_displayedDigit);
-  g_displayedDigit = (g_displayedDigit + 1) % c_numDigits;
-}
-
-void changeDice() { //increments the dice index (which means it changes the current dice)
-  g_diceIdx = (g_diceIdx + 1) % c_diceCount;
-}
-
-size_t toPwrOf(size_t a, size_t b) { //returns a^b
+//FUNCTIONS (non-dependent on other objects)
+size_t toPwrOf(size_t base, size_t exponent) {
   size_t result = 1;
-  for(size_t i = 0; i < b; ++i) {
-    result *= a;
+  for(size_t i = 0; i < exponent; ++i) {
+    result *= base;
   }
   return result;
-}
+} //returns base^exponent (supposing smaller than size_t)
 
-size_t findGlyph(size_t number, size_t pos) { //calculates the digit which should be shown on a position pos for any number, could be simplified to one line (this is still readable though)
-  size_t base = 10;
-  size_t pwrFirst = (((c_numDigits-1) - pos) % c_numDigits);
-  size_t pwrSecond = pwrFirst + 1;
-  size_t divFirst = toPwrOf(base, pwrFirst);
-  size_t divSecond = toPwrOf(base, pwrSecond);
-  size_t res = ((number % divSecond) - (number % divFirst)) / divFirst;
-  return res;
-}
-
-void changeThrows() { //increments throws
-  g_diceThrows = (g_diceThrows + 1) % c_maxThrows;
-  if(g_diceThrows == 0) ++g_diceThrows; //we do not want 0 throws
-}
-
-void changeDisplay(char one, char two, char three, char four) { //changes the output of the display, takes 4 characters as args
-  char charArr[] = { one, two, three, four };
-  for(size_t i = 0; i < c_numDigits; ++i) {
-    g_displayedChars[i] = charArr[i];
+//BUTTONS
+struct Button {
+  size_t id;
+  bool is_pressed;
+  Button(size_t btnid) {
+    id = btnid;
+    is_pressed = false;
   }
-}
 
-size_t generateRandom(unsigned long t) { //takes current time as a seed for the srand() function, generates valid random numbers via rand() and adds them together
-  size_t total = 0;
-  srand(t);
-  for(size_t i = 1; i <= g_diceThrows; i++) {
-    size_t r = rand();
-    total += (r % c_dice[g_diceIdx]) + 1;
+  void setup() {
+    pinMode(id, INPUT);
   }
-  return total;
-}
+};
+
+struct Buttons {
+  Button btns[3] = { 
+    Button(button1_pin),
+    Button(button2_pin),
+    Button(button3_pin),
+  };
+
+  size_t buttonPinsCount() {
+    return sizeof(btns) / sizeof(btns[0]);
+  }
+
+  void setup() {
+    for (size_t i = 0; i < buttonPinsCount(); ++i) {
+      btns[i].setup();
+    }
+  }
+};
+
+Buttons buttons;
+
+//DISPLAY
+struct Display {
+  char displayedChars[4] = { '1', 'd', '0', '4' }; //which chars are being displayed, starting at 1d04
+
+  size_t displayedDigit = 0; //which digit is being displayed? for multiplexing
+
+  size_t displayDigits() {
+    return sizeof(digit_muxpos) / sizeof(digit_muxpos[0]);
+  }
+
+  void setup() {
+    pinMode(latch_pin, OUTPUT);
+    pinMode(clock_pin, OUTPUT);
+    pinMode(data_pin, OUTPUT);
+  }
+
+  /** 
+   * Show chararcter on given position. If character is not letter or a digit, empty glyph is displayed instead.
+   * @param ch character to be displayed
+   * @param pos position (0 = leftmost)
+   */
+  void displayChar(char ch, byte pos)
+  {
+    byte glyph = c_emptyGlyph;
+    if (isAlpha(ch)) {
+      glyph = c_letterGlyphs[ ch - (isUpperCase(ch) ? 'A' : 'a') ];
+    } else if (isdigit(ch)) {
+      glyph = c_numberGlyphs[ ch - '0' ];
+    }
+    
+    digitalWrite(latch_pin, LOW);
+    shiftOut(data_pin, clock_pin, MSBFIRST, glyph);
+    shiftOut(data_pin, clock_pin, MSBFIRST, 1 << pos);
+    digitalWrite(latch_pin, HIGH);
+  }
+
+  void writeToDisplay() { //multiplexing, shows the "displayedChars" array to the display
+    displayChar(displayedChars[displayedDigit], displayedDigit);
+    displayedDigit = (displayedDigit + 1) % displayDigits();
+  }
+
+  size_t findGlyph(size_t number, size_t pos) { //calculates the digit which should be shown on a position pos for any number, could be simplified to one line (this is still readable though)
+    size_t base = 10;
+    size_t pwrFirst = (((displayDigits()-1) - pos) % displayDigits());
+    size_t pwrSecond = pwrFirst + 1;
+    size_t divFirst = toPwrOf(base, pwrFirst);
+    size_t divSecond = toPwrOf(base, pwrSecond);
+    size_t res = ((number % divSecond) - (number % divFirst)) / divFirst;
+    return res;
+  }
+
+  void changeDisplay(char one, char two, char three, char four) { //changes the output of the display, takes 4 characters as args
+    char charArr[] = { one, two, three, four };
+    for(size_t i = 0; i < displayDigits(); ++i) {
+      displayedChars[i] = charArr[i];
+    }
+  }
+};
+
+Display disp;
+
+//DICE
+struct Dice {
+  size_t maxThrows = 10;
+
+  size_t types[7] = { 4, 6, 8, 10, 12, 20, 100 }; //d4, d6, d8, d10, d12, d20, and d100
+
+  size_t countD() {
+    return sizeof(types)/sizeof(types[0]);
+  }
+
+  size_t idx = 0;
+
+  size_t throws = 1;
+
+  void changeDice() { //increments the dice index (which means it changes the current dice)
+    idx = (idx + 1) % countD();
+  }
+
+  void changeThrows() { //increments throws
+    throws = (throws + 1) % maxThrows;
+    if(throws == 0) ++throws; //we do not want 0 throws
+  }
+
+  size_t generateRandom(unsigned long t) { //takes current time as a seed for the srand() function, generates valid random numbers via rand() and adds them together
+    size_t total = 0;
+    srand(t);
+    for(size_t i = 1; i <= throws; i++) {
+      size_t r = rand();
+      total += (r % types[idx]) + 1;
+    }
+    return total;
+  }
+
+};
+
+Dice dice;
+
+/* FUNCTIONS (dependent on more objects)*/
 
 void changeDispCfgMode() { //changes the display if set to cfg mode
-    if (g_diceIdx == c_diceCount-1) changeDisplay(g_diceThrows + '0', 'd', '0', '0');
-    else changeDisplay(g_diceThrows + '0', 'd', (c_dice[g_diceIdx] / 10) + '0', (c_dice[g_diceIdx] % 10) + '0');
+    if (dice.idx == dice.countD()-1) disp.changeDisplay(dice.throws + '0', 'd', '0', '0');
+    else disp.changeDisplay(dice.throws + '0', 'd', (dice.types[dice.idx] / 10) + '0', (dice.types[dice.idx] % 10) + '0');
 }
 
 void checkBtns(size_t btnNumber, unsigned long t) { //checks the button status
-  size_t btnState = digitalRead(c_buttonPins[btnNumber-1]); //read the current button state
-  if(btnState == ON && !g_btnHeld[btnNumber-1]) { //button is pressed
-    g_btnHeld[btnNumber-1] = true; //we assume the button is being held now
+  size_t btnState = digitalRead(buttons.btns[btnNumber-1].id); //read the current button state
+  if(btnState == ON && !buttons.btns[btnNumber-1].is_pressed) { //button is pressed
+    buttons.btns[btnNumber-1].is_pressed = true; //we assume the button is being held now
     switch(btnNumber) {
       case 1:
         currentMod = ModStates::NORMAL_MODE;
         break;
       case 2:
         currentMod = ModStates::CONFIGURATION_MODE;
-        changeThrows();
+        dice.changeThrows();
         changeDispCfgMode();
         break;
       case 3:
         currentMod = ModStates::CONFIGURATION_MODE;
-        changeDice();
+        dice.changeDice();
         changeDispCfgMode();
         break;
     }
   }
   
-  else if (btnState == ON && g_btnHeld[0] && btnNumber == 1) { //holding button 1
-    size_t newRand = generateRandom(t);
-    changeDisplay(((newRand + 1) % 10) + '0', ((newRand + 2) % 10) + '0',
+  else if (btnState == ON && buttons.btns[0].is_pressed && btnNumber == 1) { //holding button 1
+    size_t newRand = dice.generateRandom(t);
+    disp.changeDisplay(((newRand + 1) % 10) + '0', ((newRand + 2) % 10) + '0',
         ((newRand + 3) % 10) + '0', ((newRand + 4) % 10) + '0'); //shows random display output when generating
   }
 
-  else if (g_btnHeld[0] && btnState == OFF && btnNumber == 1) { //on button 1 release
-    size_t newRand = generateRandom(t);
-    changeDisplay('0', findGlyph(newRand, 1) + '0', findGlyph(newRand, 2) + '0', findGlyph(newRand, 3) + '0'); //shows the generated number
-    g_btnHeld[0] = false;
+  else if (buttons.btns[0].is_pressed && btnState == OFF && btnNumber == 1) { //on button 1 release
+    size_t newRand = dice.generateRandom(t);
+    disp.changeDisplay('0', disp.findGlyph(newRand, 1) + '0', disp.findGlyph(newRand, 2) + '0', disp.findGlyph(newRand, 3) + '0'); //shows the generated number
+    buttons.btns[0].is_pressed = false;
   }
   
   else if (btnState == OFF) { //the button is not being held anymore
-    g_btnHeld[btnNumber-1] = false;
+    buttons.btns[btnNumber-1].is_pressed = false;
   }
 }
 
+//ARDUINO FUNCTIONS
+
 void setup() {
-  pinMode(latch_pin, OUTPUT);
-  pinMode(clock_pin, OUTPUT);
-  pinMode(data_pin, OUTPUT);
+  buttons.setup();
+  disp.setup();
 }
 
 void loop() {
   unsigned long currentTime = millis();
-  for (size_t i = 1; i <= c_numButtons; ++i) {
+  for (size_t i = 1; i <= buttons.buttonPinsCount(); ++i) {
     checkBtns(i, currentTime);
   }
-  writeToDisplay();
+  disp.writeToDisplay();
 }
