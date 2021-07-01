@@ -64,6 +64,12 @@ size_t toPwrOf(size_t base, size_t exponent) {
   return result;
 } //returns base^exponent (supposing smaller than size_t)
 
+size_t strlen1(const char *str) { 
+  size_t length = 0;
+  while(str[length] != '\0') ++length;
+  return length;
+} //returns the length of the string str
+
 //BUTTONS
 struct Button {
   size_t id;
@@ -101,6 +107,16 @@ Buttons buttons;
 //DISPLAY
 struct Display {
   char displayedChars[4] = { '1', 'd', '0', '4' }; //which chars are being displayed, starting at 1d04
+
+  char message[4] = { 'G', 'E', 'N', ' ' };
+
+  size_t msgLength = strlen1(message); //length of the message
+
+  unsigned long prevTime = 0; //keeps the previous time
+
+  size_t msgInterval = 200; //200ms interval for the animation
+
+  size_t msgIndex = 0; //for the "generating" animation
 
   size_t displayedDigit = 0; //which digit is being displayed? for multiplexing
 
@@ -154,6 +170,15 @@ struct Display {
     for(size_t i = 0; i < displayDigits(); ++i) {
       displayedChars[i] = charArr[i];
     }
+  }
+
+  void showGenMessage(unsigned long t) {
+    if(t - prevTime >= msgInterval) { //move the displayed digit by one after 200ms
+      msgIndex++;
+      prevTime = t;
+    }
+    changeDisplay(message[msgIndex % 4], message[(msgIndex + 1) % 4], 
+      message[(msgIndex + 2) % 4], message[(msgIndex + 3) % 4]); //shows random display output when generating
   }
 };
 
@@ -225,9 +250,7 @@ void checkBtns(size_t btnNumber, unsigned long t) { //checks the button status
   }
   
   else if (btnState == ON && buttons.btns[0].is_pressed && btnNumber == 1) { //holding button 1
-    size_t newRand = dice.generateRandom(t);
-    disp.changeDisplay(((newRand + 1) % 10) + '0', ((newRand + 2) % 10) + '0',
-        ((newRand + 3) % 10) + '0', ((newRand + 4) % 10) + '0'); //shows random display output when generating
+    disp.showGenMessage(t);
   }
 
   else if (buttons.btns[0].is_pressed && btnState == OFF && btnNumber == 1) { //on button 1 release
